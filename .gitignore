@@ -1,0 +1,7 @@
+*.o
+*.d
+emu
+dis
+emu-deb
+dis-deb
+tests
