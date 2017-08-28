@@ -7,7 +7,7 @@ int main(int argc, char * argv[]) {
         printf("Filename must be provided.\n");
         return -1;
     }
-    if (disassemble(argv[0])) {
+    if (disassemble(argv[1])) {
         printf("Disassembling failed.\n");
         return -1;
     }
