@@ -1,24 +1,16 @@
 CFLAGS += -std=c11 -pedantic -Wall -Wextra -MMD
 
-.PHONY: all
+.PHONY: all debug test clean
 all: emu dis
 
-.PHONY: debug
 debug: emu-deb dis-deb
 
-.PHONY: test
 test: CFLAGS += -g
 test: tests
 	./$<
 
-.PHONY: clean
 clean:
-	$(RM) *.o *.d \
-	emu \
-	dis \
-	emu-deb \
-	dis-deb \
-	tests
+	$(RM) *.o *.d emu dis emu-deb dis-deb tests
 
 LINK = $(CC) $(LDFLAGS) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
