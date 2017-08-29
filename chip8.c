@@ -337,7 +337,7 @@ tick() {
     static int ticks;
     if (ram.waiting) return;
     execute_instruction(ram.bytes[ram.PC] << 8 | ram.bytes[ram.PC + 1]);
-    if (30 != ++ticks) return;
+    if (10 != ++ticks) return;
     if (ram.DT > 0) --ram.DT;
     if (ram.ST > 0) --ram.ST;
     ticks = 0;
