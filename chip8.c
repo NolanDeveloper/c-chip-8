@@ -313,7 +313,7 @@ disassemble(char * filename) {
         instruction = (lo << 8u) | hi;
         putchar('|');
         show_word(instruction);
-        printf("|\t%03x\t%04x\t", pos, instruction);
+        printf("|\t%03x\t", pos);
         show_instruction(instruction);
         putchar('\n');
         pos += 2;
