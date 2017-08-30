@@ -16,10 +16,10 @@ LINK = $(CC) $(LDFLAGS) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 emu emu-deb: CFLAGS += `sdl-config --cflags`
 emu emu-deb: LDLIBS += `sdl-config --libs`
-emu emu-deb: emu.o chip8.o
+emu emu-deb: emu.o chip8.o utils.o
 	$(LINK)
 
-dis dis-deb: dis.o chip8.o
+dis dis-deb: dis.o chip8.o utils.o
 	$(LINK)
 
 tests: chip8-tests.o

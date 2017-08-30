@@ -4,12 +4,27 @@
 #include "SDL.h"
 
 #include "chip8.h"
+#include "utils.h"
 
 #define WINDOW_WIDTH (DISPLAY_WIDTH * 10)
 #define WINDOW_HEIGHT (DISPLAY_HEIGHT * 10)
 
 static unsigned running;
 static SDL_Surface * window;
+
+/*
+    Chip8       Keyboard
+    1 2 3 c     1 2 3 4
+    4 5 6 d     q w e r
+    7 8 9 e     a s d f
+    a 0 b f     z x c v
+*/
+static SDLKey keymap[] = {
+    SDLK_x, SDLK_1, SDLK_2, SDLK_3,
+    SDLK_q, SDLK_w, SDLK_e, SDLK_a,
+    SDLK_s, SDLK_d, SDLK_z, SDLK_c,
+    SDLK_4, SDLK_r, SDLK_f, SDLK_v,
+};
 
 static void
 update_display() {
@@ -36,6 +51,7 @@ int main(int argc, char * argv[]) {
     if (load_file(argv[1])) return -1;
     if (-1 == SDL_Init(SDL_INIT_VIDEO)) return -1;
     window = SDL_SetVideoMode(WINDOW_WIDTH, WINDOW_HEIGHT, 32, SDL_DOUBLEBUF);
+    if (!window) return -1;
     running = 1;
     SDL_Rect rect = { 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT };
     SDL_FillRect(window, &rect, 0x5d2600);
@@ -44,36 +60,20 @@ int main(int argc, char * argv[]) {
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            unsigned n;
             switch (event.type) {
             case SDL_KEYDOWN:
             case SDL_KEYUP:
-                switch (event.key.keysym.sym) {
-                case SDLK_1: n = 0x1; break;
-                case SDLK_2: n = 0x2; break;
-                case SDLK_3: n = 0x3; break;
-                case SDLK_4: n = 0xc; break;
-                case SDLK_q: n = 0x4; break;
-                case SDLK_w: n = 0x5; break;
-                case SDLK_e: n = 0x6; break;
-                case SDLK_r: n = 0xd; break;
-                case SDLK_a: n = 0x7; break;
-                case SDLK_s: n = 0x8; break;
-                case SDLK_d: n = 0x9; break;
-                case SDLK_f: n = 0xe; break;
-                case SDLK_z: n = 0xa; break;
-                case SDLK_x: n = 0x0; break;
-                case SDLK_c: n = 0xb; break;
-                case SDLK_v: n = 0xf; break;
-                default: goto break_inner_switch;
+                for (unsigned i = 0; i < 16; ++i) {
+                    if (event.key.keysym.sym != keymap[i]) continue;
+                    set_key_state(i, SDL_KEYDOWN == event.type ? 1 : 0);
+                    goto break_inner;
                 }
-                set_key_state(n, SDL_KEYDOWN == event.type ? 1u : 0u);
                 break;
             case SDL_QUIT:
                 running = 0;
                 break;
             }
-break_inner_switch:;
+break_inner:;
         }
         unsigned now = SDL_GetTicks();
         if (now - last_tick > 1) {

@@ -1,8 +1,10 @@
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "chip8.h"
+#include "utils.h"
 
 static const unsigned char GLYPHS[16][5] = {
     { 0xF0, 0x90, 0x90, 0x90, 0xF0 }, { 0x20, 0x60, 0x20, 0x20, 0x70 },
@@ -15,8 +17,10 @@ static const unsigned char GLYPHS[16][5] = {
     { 0xF0, 0x80, 0xF0, 0x80, 0xF0 }, { 0xF0, 0x80, 0xF0, 0x80, 0x80 }
 };
 
+#define MAX_ROM_SIZE (0x1000 - 0x200)
+
 static union {
-    unsigned char bytes[4096];
+    unsigned char bytes[0x1000];
     struct {
         unsigned char V[16];
         unsigned short I;
@@ -26,7 +30,7 @@ static union {
         unsigned char SP;
         unsigned short stack[16];
         unsigned char sprites[16][5];
-        unsigned char display[DISPLAY_HEIGHT][DISPLAY_WIDTH / 8];
+        unsigned char display[DISPLAY_HEIGHT][DISPLAY_WIDTH / 8 + 1];
         unsigned short key_state;
         unsigned char waiting;
         unsigned char store_key;
@@ -35,15 +39,17 @@ static union {
 
 extern int
 get_pixel(int row, int col) {
-    return (ram.display[row][col / 8] >> (col % 8u)) & 0x1u;
+    assert(0 <= row && row < DISPLAY_HEIGHT);
+    assert(0 <= col && col < DISPLAY_WIDTH);
+    return (ram.display[row][col / 8] >> (7 - col % 8)) & 1u;
 }
 
 extern void
 reset_ram() {
     memset(&ram, 0, sizeof(ram));
+    memcpy(&ram.sprites, &GLYPHS, sizeof(GLYPHS));
     ram.PC = 0x200;
     ram.SP = (char *)&ram.stack - (char*)&ram;
-    memcpy(&ram.sprites, &GLYPHS, sizeof(GLYPHS));
 }
 
 static void
@@ -54,13 +60,12 @@ clear_display() {
 static void
 return_from_subroutine() {
     ram.SP -= 2;
-    ram.PC = (ram.bytes[ram.SP] | (ram.bytes[ram.SP + 1] << 8));
+    ram.PC = *(unsigned short *)&ram.bytes[ram.SP];
 }
 
 static void
 call(unsigned nnn) {
-    ram.bytes[ram.SP] = ram.PC & 0xff;
-    ram.bytes[ram.SP + 1] = (ram.PC & 0xff00) >> 8;
+    *(unsigned short *)&ram.bytes[ram.SP] = ram.PC;
     ram.SP += 2;
     ram.PC = nnn - 2;
 }
@@ -72,35 +77,32 @@ skip_next_instruction() {
 
 static void
 display_sprite(unsigned vx, unsigned vy, unsigned nibble) {
+    unsigned x, y, n, byte, piece;
     ram.V[0xf] = 0;
-    unsigned x = ram.V[vx] %= DISPLAY_WIDTH;
-    unsigned y = ram.V[vy] %= DISPLAY_HEIGHT;
-    unsigned hmax = DISPLAY_HEIGHT < y + nibble ? DISPLAY_HEIGHT - y : nibble;
-    for (unsigned h = 0; h < hmax; ++h) {
-        unsigned char byte = ram.bytes[ram.I + h];
-        unsigned yy = y + h;
-        unsigned vmax = DISPLAY_WIDTH < x + 8 ? DISPLAY_WIDTH - x : 8;
-        for (unsigned v = 0; v < vmax; ++v) {
-            unsigned xx = x + v;
-            if (!((byte >> (7 - v)) & 0x1u)) continue;
-            if ((ram.display[yy][xx / 8] >> (xx % 8)) & 0x1u) {
-                ram.V[0xf] = 1;
-            }
-            ram.display[yy][xx / 8] ^= 1u << (xx % 8);
+    y = ram.V[vy] %= DISPLAY_HEIGHT;
+    x = ram.V[vx] %= DISPLAY_WIDTH;
+    n = DISPLAY_HEIGHT < y + nibble ? DISPLAY_HEIGHT - y : nibble;
+    for (byte = 0; byte < n; ++byte) {
+        piece = ram.bytes[ram.I + byte];
+        if (ram.display[y + byte][x / 8] & (piece >> (x % 8)) ||
+            ram.display[y + byte][x / 8 + 1] & (piece << (8 - x % 8))) {
+            ram.V[0xf] = 1;
         }
+        ram.display[y + byte][x / 8] ^= piece >> (x % 8);
+        ram.display[y + byte][x / 8 + 1] ^= piece << (8 - x % 8);
     }
 }
 
 static int
 is_key_pressed(unsigned x) {
-    if (ram.V[x] > 0xf) return 0;
+    if (ram.V[x] > 0xf) die("is_key_pressed(%d) doesn't exist", x);
     return (ram.key_state >> ram.V[x]) & 0x1;
 }
 
 static void
 wait_for_key_press(unsigned x) {
     ram.waiting = 1;
-    ram.store_key = (unsigned char)x;
+    ram.store_key = x;
 }
 
 static void
@@ -265,20 +267,22 @@ execute_instruction(unsigned short instruction) {
     ram.PC += 2;
 }
 
-extern int
-load_file(char * filename) {
-    FILE * file = fopen(filename, "r");
-    if (!file) {
-        perror("Can't open file");
-        return 1;
-    }
-    unsigned pos = 0x200;
-    int c;
-    while (EOF != (c = getc(file))) {
-        ram.bytes[pos++] = (unsigned char) c;
-    }
+static int
+load_file_ex(char * filename, unsigned * file_size) {
+    FILE * file = fopen(filename, "rb");
+    fseek(file, 0, SEEK_END);
+    long size = ftell(file);
+    rewind(file);
+    if (MAX_ROM_SIZE < size) return 1;
+    if (file_size) *file_size = size;
+    if (!fread(ram.bytes + 0x200, size, 1, file)) return 1;
     fclose(file);
     return 0;
+}
+
+extern int
+load_file(char * filename) {
+    return load_file_ex(filename, NULL);
 }
 
 static void
@@ -293,32 +297,26 @@ show_word(unsigned short word) {
 
 extern int
 disassemble(char * filename) {
-    FILE * file = fopen(filename, "r");
-    if (!file) {
-        perror("Can't open file");
-        return 1;
-    }
-    unsigned pos = 0x200;
-    unsigned instruction;
-    unsigned char lo = 0, hi = 0;
-    while (1) {
-        if (!fread(&lo, 1, 1, file)) break;
-        if (!fread(&hi, 1, 1, file)) {
-            instruction = lo << 8u;
-            putchar('|');
-            show_word(instruction);
-            printf("|\n");
-            break;
-        }
-        instruction = (lo << 8u) | hi;
+    unsigned file_size;
+    if (load_file_ex(filename, &file_size)) return -1;
+    unsigned n = file_size / 2;
+    unsigned short instruction;
+    for (unsigned i = 0; i < n; ++i) {
+        unsigned pos = 0x200 + 2 * i;
+        instruction =
+            (unsigned short)ram.bytes[pos] << 8u | ram.bytes[pos + 1];
         putchar('|');
         show_word(instruction);
         printf("|\t%03x\t", pos);
         show_instruction(instruction);
         putchar('\n');
-        pos += 2;
     }
-    fclose(file);
+    if (file_size % 2) {
+        instruction = (unsigned short)ram.bytes[file_size - 1] << 8u;
+        putchar('|');
+        show_word(instruction);
+        printf("|\n");
+    }
     return 0;
 }
 
@@ -334,9 +332,10 @@ set_key_state(unsigned n, unsigned state) {
 
 extern void
 tick() {
-    static int ticks;
+    static int ticks = 0;
     if (ram.waiting) return;
-    execute_instruction(ram.bytes[ram.PC] << 8 | ram.bytes[ram.PC + 1]);
+    execute_instruction(
+        (unsigned) ram.bytes[ram.PC] << 8 | ram.bytes[ram.PC + 1]);
     if (10 != ++ticks) return;
     if (ram.DT > 0) --ram.DT;
     if (ram.ST > 0) --ram.ST;
