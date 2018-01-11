@@ -312,7 +312,7 @@ disassemble(char * filename) {
         putchar('\n');
     }
     if (file_size % 2) {
-        instruction = (unsigned short)ram.bytes[file_size - 1] << 8u;
+        instruction = (unsigned short)ram.bytes[0x200 + file_size - 1] << 8u;
         putchar('|');
         show_word(instruction);
         printf("|\n");
